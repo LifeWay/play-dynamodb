@@ -1,7 +1,9 @@
 package com.lifeway.play.dynamo
 
 import play.api.libs.json._
+
 import scala.collection.GenTraversable
+import scala.util.Try
 
 object DynamoJsonConverters {
 
@@ -47,8 +49,12 @@ object DynamoJsonConverters {
       * Given a JsObject that was stored in DynamoDB, this will turn that Dynamo json into a standard JsObject will all of
       * the dynamo types removed. Typically, you would use this to transform the Dynamo response back to a JsValue type
       * that you could then pass to Play's standard Json writes method.
+      *
+      * Note that this returns a Try[JsObject], because if a non dynamoDB json object is passed to it (which we can't
+      * prevent), or if a currently unsupported DynamoDB type was in the object (i.e. Binary or BinarySet), then we
+      * would throw a match exception.
       */
-    def fromDynamoJson: JsObject = {
+    def fromDynamoJson: Try[JsObject] = {
       def objectConversion(i: JsObject): JsObject =
         JsObject(i.fields.flatMap {
           case (k, JsObject(wrappedObj)) =>
@@ -81,7 +87,7 @@ object DynamoJsonConverters {
             }
         })
 
-      objectConversion(input)
+      Try(objectConversion(input))
     }
   }
 }

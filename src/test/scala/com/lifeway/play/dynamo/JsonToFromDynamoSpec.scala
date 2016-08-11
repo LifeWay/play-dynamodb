@@ -4,6 +4,8 @@ import com.lifeway.play.dynamo
 import org.scalatest.{MustMatchers, WordSpec}
 import play.api.libs.json.{JsObject, Json}
 
+import scala.util.Try
+
 class JsonToFromDynamoSpec extends WordSpec with MustMatchers {
 
   case class NestedObject(title: String, age: Byte)
@@ -139,9 +141,24 @@ class JsonToFromDynamoSpec extends WordSpec with MustMatchers {
     "read from DynamoDB Json through direct Json Converters to standard case class readers" in {
       import DynamoJsonConverters.Converters
 
-      println(sampleJson.as[JsObject].fromDynamoJson)
+      val result: Try[TestSample] = sampleJson.as[JsObject].fromDynamoJson.map(_.as[TestSample])
+      result.isSuccess mustEqual true
+      result.get mustEqual sampleVal
+    }
 
-      sampleJson.as[JsObject].fromDynamoJson.as[TestSample] mustEqual sampleVal
+    "read from an invalid DynamoDB JSON through direct Json Converters should return an failed Try in the event of non-dynamo Json" in {
+      import DynamoJsonConverters.Converters
+
+      val json = Json.parse(
+        """
+          |{
+          |   "key": "This is normal Json",
+          |   "otherThing": true
+          |}
+        """.stripMargin)
+
+      val result: Try[TestSample] = json.as[JsObject].fromDynamoJson.map(_.as[TestSample])
+      result.isSuccess mustEqual false
     }
 
     "write to DynamoDB Json through direct Json converters that occur after the standard case class Json writers" in {
