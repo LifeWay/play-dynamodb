@@ -146,7 +146,7 @@ class JsonToFromDynamoSpec extends WordSpec with MustMatchers {
       result.get mustEqual sampleVal
     }
 
-    "read from an invalid DynamoDB JSON through direct Json Converters should return an failed Try in the event of non-dynamo Json" in {
+    "read from an invalid DynamoDB JSON through direct Json Converters should return with accumulated error messages in the event of non-dynamo Json" in {
       import DynamoJsonConverters.Converters
 
       val json = Json.parse("""
