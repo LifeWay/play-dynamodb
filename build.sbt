@@ -10,6 +10,7 @@ libraryDependencies ++= Seq(
   "com.typesafe.play" %% "play" % "2.5.0" % "provided",
   "com.typesafe.play" %% "play-ws" % "2.5.0" % "provided",
   "com.amazonaws" % "aws-java-sdk-core" % "1.11.+" % "provided",
+  "org.scalactic" %% "scalactic" % "3.0.0" % "provided",
   "net.kaliber" %% "play-s3" % "8.0.0" % "provided",
   "com.typesafe.play" %% "play-test" % "2.5.0" % "test",
   "com.amazonaws" % "aws-java-sdk-dynamodb" % "1.11.21" % "test",

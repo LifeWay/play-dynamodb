@@ -1,10 +1,9 @@
 package com.lifeway.play.dynamo
 
 import com.lifeway.play.dynamo
+import org.scalactic._
 import org.scalatest.{MustMatchers, WordSpec}
 import play.api.libs.json.{JsObject, Json}
-
-import scala.util.Try
 
 class JsonToFromDynamoSpec extends WordSpec with MustMatchers {
 
@@ -25,6 +24,7 @@ class JsonToFromDynamoSpec extends WordSpec with MustMatchers {
                         objectType: NestedObject,
                         nestedObjectSet: Set[NestedObject],
                         nestedObjectSeq: Seq[NestedObject])
+
   object TestSample {
     implicit val reads = Json.reads[TestSample]
     implicit val writes = Json.writes[TestSample]
@@ -141,24 +141,46 @@ class JsonToFromDynamoSpec extends WordSpec with MustMatchers {
     "read from DynamoDB Json through direct Json Converters to standard case class readers" in {
       import DynamoJsonConverters.Converters
 
-      val result: Try[TestSample] = sampleJson.as[JsObject].fromDynamoJson.map(_.as[TestSample])
-      result.isSuccess mustEqual true
+      val result: TestSample Or Every[ErrorMessage] = sampleJson.as[JsObject].fromDynamoJson.map(_.as[TestSample])
+      result.isGood mustEqual true
       result.get mustEqual sampleVal
     }
 
     "read from an invalid DynamoDB JSON through direct Json Converters should return an failed Try in the event of non-dynamo Json" in {
       import DynamoJsonConverters.Converters
 
-      val json = Json.parse(
-        """
+      val json = Json.parse("""
           |{
           |   "key": "This is normal Json",
-          |   "otherThing": true
+          |   "otherThing": true,
+          |   "nestedType": {
+          |     "someKey" : "This is bad"
+          |   },
+          |   "someThing": {
+          |     "L": [ true, false ]
+          |   },
+          |   "anotherArray" : {
+          |     "L": [
+          |       {
+          |         "S": "A valid DynamoDB value just for good measure...."
+          |       },
+          |       {
+          |         "B": "Some data type that is not yet supported..."
+          |       }
+          |     ]
+          |   }
           |}
         """.stripMargin)
 
-      val result: Try[TestSample] = json.as[JsObject].fromDynamoJson.map(_.as[TestSample])
-      result.isSuccess mustEqual false
+      val result: TestSample Or Every[ErrorMessage] = json.as[JsObject].fromDynamoJson.map(_.as[TestSample])
+      result.isGood mustEqual false
+      result.swap.get mustEqual Many(
+          "The value for field `key` is not a valid DynamoDB type.",
+          "The value for field `otherThing` is not a valid DynamoDB type.",
+          "The field `someKey` under field `nestedType` is not a valid / supported DynamoDB type",
+          "`true` is not a valid / supported DynamoDB type in a DynamoDB array",
+          "`false` is not a valid / supported DynamoDB type in a DynamoDB array",
+          "`B` is not a valid / supported DynamoDB type in an array")
     }
 
     "write to DynamoDB Json through direct Json converters that occur after the standard case class Json writers" in {
