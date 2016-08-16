@@ -1,9 +1,9 @@
 package com.lifeway.play.dynamo
 
+import org.scalactic._
 import play.api.libs.json._
 
 import scala.collection.GenTraversable
-import scala.util.Try
 
 object DynamoJsonConverters {
 
@@ -50,44 +50,67 @@ object DynamoJsonConverters {
       * the dynamo types removed. Typically, you would use this to transform the Dynamo response back to a JsValue type
       * that you could then pass to Play's standard Json writes method.
       *
-      * Note that this returns a Try[JsObject], because if a non dynamoDB json object is passed to it (which we can't
-      * prevent), or if a currently unsupported DynamoDB type was in the object (i.e. Binary or BinarySet), then we
-      * would throw a match exception.
+      * Note that this returns a JsObject Or Every[ErrorMessage], because if a non dynamoDB json object is passed to it
+      * (which we can't prevent), or if a currently unsupported DynamoDB type was in the object (i.e. Binary or
+      * BinarySet), then we can't successfully process the request. Rather, we return the errors to the user of all
+      * of the fields that we couldn't convert.
       */
-    def fromDynamoJson: Try[JsObject] = {
-      def objectConversion(i: JsObject): JsObject =
-        JsObject(i.fields.flatMap {
+    def fromDynamoJson: JsObject Or Every[ErrorMessage] = {
+
+      def objectConversion(i: JsObject): JsObject Or Every[ErrorMessage] = {
+        val temp: Seq[(String, JsValue) Or Every[ErrorMessage]] = i.fields.flatMap {
           case (k, JsObject(wrappedObj)) =>
             wrappedObj.map {
-              case ("S", JsString(v))     => (k, JsString(v))
-              case ("NULL", _)            => (k, JsBoolean(true))
-              case ("BOOL", JsBoolean(v)) => (k, JsBoolean(v))
-              case ("N", JsString(v))     => (k, JsNumber(BigDecimal(v)))
-              case ("L", v: JsArray)      => (k, arrayConversion(v))
-              case ("M", m: JsObject)     => (k, objectConversion(m))
-              case ("SS", v: JsArray)     => (k, v)
-              case ("NS", v: JsArray)     => (k, JsArray(v.value.map(x => JsNumber(BigDecimal(x.as[JsString].value)))))
+              case ("S", JsString(v))     => Good(k -> JsString(v))
+              case ("NULL", _)            => Good(k, JsBoolean(true))
+              case ("BOOL", JsBoolean(v)) => Good((k, JsBoolean(v)))
+              case ("N", JsString(v))     => Good((k, JsNumber(BigDecimal(v))))
+              case ("L", v: JsArray) =>
+                for {
+                  conv <- arrayConversion(v)
+                } yield (k, conv)
+              case ("M", m: JsObject) =>
+                for {
+                  conv <- objectConversion(m)
+                } yield (k, conv)
+              case ("SS", v: JsArray) => Good((k, v))
+              case ("NS", v: JsArray) =>
+                Good((k, JsArray(v.value.map(x => JsNumber(BigDecimal(x.as[JsString].value))))))
+              case (t, _) => Bad(One(s"The field `$t` under field `$k` is not a valid / supported DynamoDB type"))
             }
-        })
+          case (k, _) => Seq(Bad(One(s"The value for field `$k` is not a valid DynamoDB type.")))
+        }
 
-      def arrayConversion(i: JsArray): JsValue =
-        JsArray(i.value.flatMap {
-          case x: JsNumber => GenTraversable(x)
-          case x: JsString => GenTraversable(x)
+        val (goodSeq, badSeq) = temp.partition(_.isGood)
+        if (badSeq.isEmpty) Good(JsObject(goodSeq.map(_.get)))
+        else Bad(Every.from(badSeq.flatMap(_.swap.get.map(x => x))).get)
+      }
+
+      def arrayConversion(i: JsArray): JsValue Or Every[ErrorMessage] = {
+        val temp: Seq[JsValue Or Every[ErrorMessage]] = i.value.flatMap {
+          case x: JsNumber => GenTraversable(Good(x))
+          case x: JsString => GenTraversable(Good(x))
           case x: JsObject =>
             x.fields.map {
-              case ("S", v: JsString)     => v
-              case ("NULL", _)            => JsNull
-              case ("BOOL", v: JsBoolean) => v
-              case ("N", JsString(v))     => JsNumber(BigDecimal(v))
+              case ("S", v: JsString)     => Good(v)
+              case ("NULL", _)            => Good(JsNull)
+              case ("BOOL", v: JsBoolean) => Good(v)
+              case ("N", JsString(v))     => Good(JsNumber(BigDecimal(v)))
               case ("L", v: JsArray)      => arrayConversion(v)
               case ("M", m: JsObject)     => objectConversion(m)
-              case ("SS", v: JsArray)     => v
-              case ("NS", v: JsArray)     => JsArray(v.value.map(x => JsNumber(BigDecimal(x.as[JsString].value))))
+              case ("SS", v: JsArray)     => Good(v)
+              case ("NS", v: JsArray)     => Good(JsArray(v.value.map(x => JsNumber(BigDecimal(x.as[JsString].value)))))
+              case (t, _)                 => Bad(One(s"`$t` is not a valid / supported DynamoDB type in an array"))
             }
-        })
+          case x: JsValue => Seq(Bad(One(s"`$x` is not a valid / supported DynamoDB type in a DynamoDB array")))
+        }
 
-      Try(objectConversion(input))
+        val (goodSeq, badSeq) = temp.partition(_.isGood)
+        if (badSeq.isEmpty) Good(JsArray(goodSeq.map(_.get)))
+        else Bad(Every.from(badSeq.flatMap(_.swap.get.map(x => x))).get)
+      }
+
+      objectConversion(input)
     }
   }
 }
