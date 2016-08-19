@@ -112,5 +112,21 @@ object DynamoJsonConverters {
 
       objectConversion(input)
     }
+
+    /**
+      * Uses the fromDynamoJson conversion to convert from a DynamoDB Json into the given type T using the provided
+      * implicit reads for type T.
+      *
+      * @param rds
+      * @tparam T
+      * @return
+      */
+    def dynamoReads[T](implicit rds: Reads[T]): T Or Every[ErrorMessage] = {
+      input.fromDynamoJson.flatMap(
+          _.validate[T].fold(
+              errors => Bad(Every.from(errors.map(_.toString)).get),
+              success => Good(success)
+          ))
+    }
   }
 }
