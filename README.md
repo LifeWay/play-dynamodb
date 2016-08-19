@@ -90,7 +90,6 @@ class TryIt(wsDynamo: WSDynamoAPI) extends Controller {
             if (resp.status == 200)
               Ok("Successfully saved person")
             else {
-              println(resp.body)
               InternalServerError("There was a problem saving the person..")
             }
           }
@@ -100,29 +99,29 @@ class TryIt(wsDynamo: WSDynamoAPI) extends Controller {
 
   def getPerson(personId: String) = Action.async { implicit request =>
     val req = Json.obj(
-      "TableName" -> s"demo.person",
-      "Key" -> Json.obj("personId" -> Json.obj("S" -> personId)),
+      "TableName"              -> s"demo.person",
+      "Key"                    -> Json.obj("personId" -> Json.obj("S" -> personId)),
       "ReturnConsumedCapacity" -> "NONE",
-      "ConsistentRead" -> false
+      "ConsistentRead"         -> false
     )
 
     wsDynamo.getItem(req).map { resp =>
       if (resp.status == 200) {
-        (resp.json \ "Item").asOpt[JsObject].fold(NotFound("Person not found by that ID")) { record =>
-          record.fromDynamoJson.map(
-            _.validate[Person].fold(
-              errors => InternalServerError("Unable to parse record"),
-              success => Ok(Json.toJson(success))
-            )) match {
-            case Good(u) => u
-            case Bad(errors) => InternalServerError(errors.toSeq.toString)
-          }
+        itemReader[Person](resp.json) match {
+          case Good(Some(p)) => Ok(Json.toJson(p))
+          case Good(None)    => NotFound("Person not found by that ID")
+          case Bad(errors)   => InternalServerError(errors.toSeq.toString)
         }
       } else {
-        println(resp.json)
         InternalServerError("Unable to communicate successfully with DynamoDB")
       }
     }
+  }
+
+  def itemReader[T](i: JsValue)(implicit rds: Reads[T]): Option[T] Or Every[ErrorMessage] = {
+    (i \ "Item")
+      .asOpt[JsObject]
+      .fold[Or[Option[T], Every[ErrorMessage]]](Good(Option.empty[T]))(_.dynamoReads[T](rds).map(x => Some(x)))
   }
 }
 
