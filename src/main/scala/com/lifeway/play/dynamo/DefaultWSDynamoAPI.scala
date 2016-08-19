@@ -1,5 +1,7 @@
 package com.lifeway.play.dynamo
 
+import javax.inject.{Inject, Singleton}
+
 import akka.actor.{ActorSystem, Scheduler}
 import com.amazonaws.auth.{AWSCredentialsProvider, BasicSessionCredentials}
 import com.typesafe.config.Config
@@ -10,42 +12,39 @@ import play.api.libs.ws.{WSClient, WSRequest, WSResponse}
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
 
-class WSDynamo(credProvider: AWSCredentialsProvider,
-               ws: WSClient,
-               config: Config,
-               ec: ExecutionContext,
-               as: ActorSystem) {
+@Singleton
+class DefaultWSDynamoAPI @Inject()(credProvider: AWSCredentialsProvider, ws: WSClient, config: Config, as: ActorSystem)
+    extends WSDynamoAPI {
 
-  import WSDynamo._
+  import DefaultWSDynamoAPI._
 
-  val serviceUrl = config.getString("dynamoDB.url")
-  val serviceName = config.getString("dynamoDB.serviceName")
-  val serviceRegion = config.getString("dynamoDB.serviceRegion")
-  val serviceRetries = config.getInt("dynamoDB.serviceRetriesBeforeFail")
+  val serviceUrl = config.getString("wsDynamoDB.url")
+  val serviceRegion = config.getString("wsDynamoDB.serviceRegion")
+  val serviceRetries = config.getInt("wsDynamoDB.serviceRetriesBeforeFail")
 
-  private val serviceSigner = (wsReq: WSRequest) =>
-    retryableWSSigner(wsReq, credProvider, serviceName, serviceRegion, serviceRetries)(ec, as.scheduler)
+  private val serviceSigner = (wsReq: WSRequest, ec: ExecutionContext) =>
+    retryableWSSigner(wsReq, credProvider, "dynamodb", serviceRegion, serviceRetries)(ec, as.scheduler)
 
   private val dynamoWSRequest =
     ws.url(serviceUrl).withHeaders("Content-Type" -> "application/x-amz-json-1.0").withMethod("POST")
 
-  def putItem(data: JsObject) =
-    serviceSigner(dynamoWSRequest.withHeaders("x-amz-target" -> "DynamoDB_20120810.PutItem").withBody(data))
+  def putItem(data: JsObject)(implicit ec: ExecutionContext) =
+    serviceSigner(dynamoWSRequest.withHeaders("x-amz-target" -> "DynamoDB_20120810.PutItem").withBody(data), ec)
 
-  def getItem(data: JsObject) =
-    serviceSigner(dynamoWSRequest.withHeaders("x-amz-target" -> "DynamoDB_20120810.GetItem").withBody(data))
+  def getItem(data: JsObject)(implicit ec: ExecutionContext) =
+    serviceSigner(dynamoWSRequest.withHeaders("x-amz-target" -> "DynamoDB_20120810.GetItem").withBody(data), ec)
 
-  def updateItem(data: JsObject) =
-    serviceSigner(dynamoWSRequest.withHeaders("x-amz-target" -> "DynamoDB_20120810.UpdateItem").withBody(data))
+  def updateItem(data: JsObject)(implicit ec: ExecutionContext) =
+    serviceSigner(dynamoWSRequest.withHeaders("x-amz-target" -> "DynamoDB_20120810.UpdateItem").withBody(data), ec)
 
-  def deleteItem(data: JsObject) =
-    serviceSigner(dynamoWSRequest.withHeaders("x-amz-target" -> "DynamoDB_20120810.DeleteItem").withBody(data))
+  def deleteItem(data: JsObject)(implicit ec: ExecutionContext) =
+    serviceSigner(dynamoWSRequest.withHeaders("x-amz-target" -> "DynamoDB_20120810.DeleteItem").withBody(data), ec)
 
-  def queryItem(data: JsObject) =
-    serviceSigner(dynamoWSRequest.withHeaders("x-amz-target" -> "DynamoDB_20120810.Query").withBody(data))
+  def queryItem(data: JsObject)(implicit ec: ExecutionContext) =
+    serviceSigner(dynamoWSRequest.withHeaders("x-amz-target" -> "DynamoDB_20120810.Query").withBody(data), ec)
 }
 
-object WSDynamo {
+object DefaultWSDynamoAPI {
 
   val awsPlayWSSigner = (wsReq: WSRequest, signer: Aws4Signer) => AwsRequestHolder(wsReq, signer).execute()
   //Must be a function so that instances of the class don't cache the credentials from the provider.
